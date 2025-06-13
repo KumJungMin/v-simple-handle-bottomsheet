@@ -170,6 +170,7 @@
   .bottom-sheet {
     background-color: white;
     width: 100%;
+    max-width: 500px;
     border-radius: 16px 16px 0 0;
     padding: 16px;
     position: relative;
