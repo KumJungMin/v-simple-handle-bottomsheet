@@ -1,24 +1,24 @@
 <template>
     <Teleport to="body">
       <Transition name="fade">
-        <div v-if="modelValue" class="bottom-sheet-overlay" @click="!isDragging && close">
+        <div v-if="modelValue" class="bottom-sheet-overlay" @click="!state.isDragging && close">
           <Transition name="slide-up" appear>
             <div 
               v-if="modelValue" 
               class="bottom-sheet" 
               @click.stop
-              :style="{ transform: 'translateY(' + translateY + 'px)', height: sheetHeight + 'px' }"
+              :style="{ transform: 'translateY(' + state.translateY + 'px)', height: sheetHeight + 'px' }"
+              :class="{ 'dragging': state.isDragging }"
+              ref="elementRef"
             >
               <div 
                 class="bottom-sheet-handle-area"
                 @mousedown="startDrag"
-                @touchstart="startDrag"
+                @touchstart.passive="startDrag"
               >
                 <div class="bottom-sheet-handle"></div>
               </div>
-              <div class="bottom-sheet-content">
-                <slot></slot>
-              </div>
+              <slot></slot>
             </div>
           </Transition>
         </div>
@@ -27,134 +27,63 @@
   </template>
   
   <script setup lang="ts">
-  import { ref, watch, onMounted, onUnmounted } from 'vue'
+  import { ref, watch } from 'vue'
+  import { useDrag } from '../composables/useDrag'
+  import { useResizeObserver } from '../composables/useResizeObserver'
   
   const props = defineProps<{ modelValue: boolean }>()
   const emit = defineEmits<{ (e: 'update:modelValue', value: boolean): void }>()
   
-  const translateY = ref(0)
-  const isDragging = ref(false)
-  const startY = ref(0)
-  const startTranslateY = ref(0)
-  const startTime = ref(0)
-  const sheetHeight = ref(0)
-  const windowHeight = ref(0)
-  
-  type SheetState = 'closed' | 'half' | 'full'
-  const currentState = ref<SheetState>('half')
-  
-  const preventDefault = (e: Event) => {
-    e.preventDefault()
-  }
-  
-  onMounted(() => {
-    updateDimensions()
-    window.addEventListener('resize', updateDimensions)
-    document.addEventListener('mousemove', onDrag)
-    document.addEventListener('touchmove', onDrag)
-    document.addEventListener('mouseup', endDrag)
-    document.addEventListener('touchend', endDrag)
-    document.addEventListener('selectstart', preventDefault)
+  const elementRef = ref<HTMLElement | null>(null)
+  const sheetHeight = ref(window.innerHeight * 0.8)
+
+  const { state, startDrag } = useDrag({
+    sheetHeight: sheetHeight.value,
+    onClose: () => emit('update:modelValue', false),
+    onStateChange: (newState) => console.log('Sheet state changed:', newState)
   })
   
-  onUnmounted(() => {
-    window.removeEventListener('resize', updateDimensions)
-    document.removeEventListener('mousemove', onDrag)
-    document.removeEventListener('touchmove', onDrag)
-    document.removeEventListener('mouseup', endDrag)
-    document.removeEventListener('touchend', endDrag)
-    document.removeEventListener('selectstart', preventDefault)
-  })
+  useResizeObserver((entry) => sheetHeight.value = entry.contentRect.height)
   
-  watch(() => props.modelValue, (val) => {
-    if (val) {
-      updateDimensions()
-      currentState.value = 'half'
-      translateY.value = sheetHeight.value / 2
+  watch(() => props.modelValue, (b) => {
+    // 바텀시트 초기 상태 설정
+    if (b) {
+      state.currentState = 'half'
+      state.translateY = sheetHeight.value / 2
     }
   })
   
-  const close = () => {
+  function close() {
     emit('update:modelValue', false)
-    translateY.value = 0
-    currentState.value = 'half'
-  }
-  
-  const startDrag = (e: MouseEvent | TouchEvent) => {
-    isDragging.value = true
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-    startY.value = clientY
-    startTranslateY.value = translateY.value
-    startTime.value = performance.now()
-    document.body.style.userSelect = 'none'
-    ;(document.body.style as any).webkitTouchCallout = 'none'
-    ;(document.body.style as any).touchAction = 'none'
-    const bottomSheet = document.querySelector('.bottom-sheet')
-    if (bottomSheet) {
-      bottomSheet.classList.add('dragging')
-    }
-  }
-  
-  const onDrag = (e: MouseEvent | TouchEvent) => {
-    if (!isDragging.value) return
-    e.preventDefault()
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
-    const deltaY = clientY - startY.value
-    let newTranslateY = startTranslateY.value + deltaY
-    newTranslateY = Math.max(0, Math.min(sheetHeight.value, newTranslateY))
-    translateY.value = newTranslateY
-  }
-  
-  const endDrag = () => {
-    if (!isDragging.value) return
-    isDragging.value = false
-    document.body.style.userSelect = ''
-    ;(document.body.style as any).webkitTouchCallout = ''
-    ;(document.body.style as any).touchAction = ''
-    const bottomSheet = document.querySelector('.bottom-sheet')
-    if (bottomSheet) {
-      bottomSheet.classList.remove('dragging')
-    }
-  
-    const deltaY = translateY.value - startTranslateY.value
-    const dt = performance.now() - startTime.value
-    const velocity = Math.abs(deltaY / dt)
-    const fastSwipe = velocity > 0.5
-    const threshold = sheetHeight.value / 3
-  
-    if (currentState.value === 'full') {
-      if (deltaY > threshold || (fastSwipe && deltaY > 0)) {
-        currentState.value = 'half'
-        translateY.value = sheetHeight.value / 2
-      } else {
-        translateY.value = 0
-      }
-    } else if (currentState.value === 'half') {
-      if (deltaY < -threshold || (fastSwipe && deltaY < 0)) {
-        currentState.value = 'full'
-        translateY.value = 0
-      } else if (deltaY > threshold || (fastSwipe && deltaY > 0)) {
-        close()
-      } else {
-        translateY.value = sheetHeight.value / 2
-      }
-    }
-  }
-  
-  const updateDimensions = () => {
-    windowHeight.value = window.innerHeight
-    sheetHeight.value = windowHeight.value * 0.8
+    state.translateY = 0
+    state.currentState = 'half'
   }
   </script>
   
-  <style scoped>
+  <style>
+  :root {
+    --bottom-sheet-bg: white;
+    --bottom-sheet-handle-bg: #e0e0e0;
+    --bottom-sheet-overlay-bg: rgba(0, 0, 0, 0.5);
+    --bottom-sheet-border-radius: 16px;
+    --bottom-sheet-transition-duration: 0.18s;
+  }
+  
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bottom-sheet-bg: #1a1a1a;
+      --bottom-sheet-handle-bg: #404040;
+      --bottom-sheet-overlay-bg: rgba(0, 0, 0, 0.7);
+    }
+  }
+  
   .bottom-sheet-overlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    background-color: rgba(0, 0, 0, 0.5);
+    background-color: var(--bottom-sheet-overlay-bg);
     display: flex;
     justify-content: center;
     align-items: flex-end;
@@ -162,27 +91,22 @@
   }
   
   .bottom-sheet {
-    background-color: white;
+    background-color: var(--bottom-sheet-bg);
     width: 100%;
     max-width: 500px;
-    border-radius: 16px 16px 0 0;
+    border-radius: var(--bottom-sheet-border-radius) var(--bottom-sheet-border-radius) 0 0;
     padding: 16px;
     position: relative;
-    overflow-y: auto;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1);
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
     will-change: transform;
-    -webkit-overflow-scrolling: touch;
-  }
-  
-  .bottom-sheet.dragging {
-    transition: none;
   }
   
   .bottom-sheet:not(.dragging) {
-    transition: transform 0.18s ease;
+    transition: transform var(--bottom-sheet-transition-duration) ease;
   }
   
   .bottom-sheet-handle-area {
@@ -190,38 +114,24 @@
     top: 0;
     left: 0;
     right: 0;
-    height: 40px;
+    height: 24px;
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     cursor: grab;
     touch-action: none;
-    z-index: 1;
-    user-select: none;
-    -webkit-user-select: none;
-    -webkit-touch-callout: none;
-  }
-  
-  .bottom-sheet-handle-area:active {
-    cursor: grabbing;
   }
   
   .bottom-sheet-handle {
     width: 40px;
     height: 4px;
-    background-color: #e0e0e0;
+    background-color: var(--bottom-sheet-handle-bg);
     border-radius: 2px;
   }
   
-  .bottom-sheet-content {
-    padding-top: 40px;
-    padding-bottom: env(safe-area-inset-bottom);
-  }
-  
-  /* Fade */
   .fade-enter-active,
   .fade-leave-active {
-    transition: opacity 0.3s ease;
+    transition: opacity var(--bottom-sheet-transition-duration) ease;
   }
   
   .fade-enter-from,
@@ -229,20 +139,14 @@
     opacity: 0;
   }
   
-  /* Slide-up */
   .slide-up-enter-active,
   .slide-up-leave-active {
-    transition: transform 0.3s ease;
+    transition: transform var(--bottom-sheet-transition-duration) ease;
   }
   
   .slide-up-enter-from,
   .slide-up-leave-to {
     transform: translateY(100%);
-  }
-  
-  .slide-up-enter-to,
-  .slide-up-leave-from {
-    transform: translateY(0);
   }
   </style>
   
