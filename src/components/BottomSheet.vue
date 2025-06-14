@@ -88,10 +88,16 @@
     startTime.value = performance.now()
     document.body.style.userSelect = 'none'
     ;(document.body.style as any).webkitTouchCallout = 'none'
+    ;(document.body.style as any).touchAction = 'none'
+    const bottomSheet = document.querySelector('.bottom-sheet')
+    if (bottomSheet) {
+      bottomSheet.classList.add('dragging')
+    }
   }
   
   const onDrag = (e: MouseEvent | TouchEvent) => {
     if (!isDragging.value) return
+    e.preventDefault()
     const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY
     const deltaY = clientY - startY.value
     let newTranslateY = startTranslateY.value + deltaY
@@ -104,6 +110,11 @@
     isDragging.value = false
     document.body.style.userSelect = ''
     ;(document.body.style as any).webkitTouchCallout = ''
+    ;(document.body.style as any).touchAction = ''
+    const bottomSheet = document.querySelector('.bottom-sheet')
+    if (bottomSheet) {
+      bottomSheet.classList.remove('dragging')
+    }
   
     const deltaY = translateY.value - startTranslateY.value
     const dt = performance.now() - startTime.value
@@ -158,11 +169,20 @@
     padding: 16px;
     position: relative;
     overflow-y: auto;
-    transition: transform 0.18s ease;
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
     -webkit-touch-callout: none;
+    will-change: transform;
+    -webkit-overflow-scrolling: touch;
+  }
+  
+  .bottom-sheet.dragging {
+    transition: none;
+  }
+  
+  .bottom-sheet:not(.dragging) {
+    transition: transform 0.18s ease;
   }
   
   .bottom-sheet-handle-area {
